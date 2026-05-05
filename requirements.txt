@@ -7,4 +7,4 @@ loguru>=0.7
 httpx>=0.25
 psutil>=5.9
 pyyaml>=6.0
-send2trash>=1.8
+python-dotenv>=1.0

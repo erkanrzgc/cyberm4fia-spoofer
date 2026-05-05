@@ -24,6 +24,34 @@ from spoof.models import (
     ARPConfig,
     SessionConfig,
     LogConfig,
+    PluginConfig,
+    CallbackConfig,
+    WebhookConfig,
+)
+from spoof.env import (
+    SPOOF_LOG_LEVEL,
+    SPOOF_LOG_FILE,
+    SPOOF_AUTO_FIREWALL,
+    SPOOF_RESTORE_ON_EXIT,
+    SPOOF_SAVE_STATS,
+    SPOOF_DNS_ENABLED,
+    SPOOF_DNS_MODE,
+    SPOOF_DNS_INTERFACE,
+    SPOOF_DNS_SPOOF_IP,
+    SPOOF_DNS_TARGET,
+    SPOOF_DNS_MATCH_TYPE,
+    SPOOF_DNS_TTL,
+    SPOOF_ARP_ENABLED,
+    SPOOF_ARP_INTERFACE,
+    SPOOF_ARP_INTERVAL,
+    SPOOF_ARP_GATEWAY,
+    SPOOF_ARP_VICTIM,
+    SPOOF_INTERFACE,
+    SPOOF_PLUGIN_DIR,
+    enabled_plugins,
+    webhook_url as _env_webhook_url,
+    CALLBACK_DNS_HIT_CMD,
+    CALLBACK_ARP_SPOOF_CMD,
 )
 
 
@@ -128,17 +156,32 @@ def merge_cli_overrides(
 def create_default_config() -> SpoofConfig:
     return SpoofConfig(
         session=SessionConfig(
-            log=LogConfig(level="INFO", file="logs/spoof.log"),
+            interface=SPOOF_INTERFACE or None,
+            log=LogConfig(level=SPOOF_LOG_LEVEL, file=SPOOF_LOG_FILE),
+            auto_firewall=SPOOF_AUTO_FIREWALL,
+            restore_on_exit=SPOOF_RESTORE_ON_EXIT,
+            save_stats=SPOOF_SAVE_STATS,
+            plugin=PluginConfig(
+                enabled_plugins=enabled_plugins(),
+                plugin_dir=SPOOF_PLUGIN_DIR,
+            ),
+            callback=CallbackConfig(
+                on_dns_hit=CALLBACK_DNS_HIT_CMD or None,
+                on_arp_spoof=CALLBACK_ARP_SPOOF_CMD or None,
+                webhook=WebhookConfig(url=_env_webhook_url() or None),
+            ),
         ),
         dns=DNSConfig(
-            enabled=True,
-            mode=DNSMode.RACE,
+            enabled=SPOOF_DNS_ENABLED,
+            mode=DNSMode(SPOOF_DNS_MODE),
+            interface=SPOOF_DNS_INTERFACE or None,
+            ttl=SPOOF_DNS_TTL,
             targets=[
                 SpoofRule(
-                    pattern="*.vulnweb.com",
-                    match_type=MatchType.WILDCARD,
+                    pattern=SPOOF_DNS_TARGET,
+                    match_type=MatchType(SPOOF_DNS_MATCH_TYPE),
                     action=DNSAction.REDIRECT,
-                    redirect_ip="192.168.1.100",
+                    redirect_ip=SPOOF_DNS_SPOOF_IP,
                 ),
                 SpoofRule(
                     pattern="blocked.org",
@@ -148,12 +191,13 @@ def create_default_config() -> SpoofConfig:
             ],
         ),
         arp=ARPConfig(
-            enabled=True,
-            interval=2.0,
+            enabled=SPOOF_ARP_ENABLED,
+            interface=SPOOF_ARP_INTERFACE or None,
+            interval=SPOOF_ARP_INTERVAL,
             targets=[
                 ARPTarget(
-                    gateway="192.168.1.1",
-                    victims=[ARPVictim(ip="192.168.1.105")],
+                    gateway=SPOOF_ARP_GATEWAY,
+                    victims=[ARPVictim(ip=SPOOF_ARP_VICTIM)],
                 ),
             ],
         ),

@@ -93,6 +93,11 @@ class SpoofSession:
 
         if self._config.session.plugin.enabled_plugins:
             self._plugin_manager.load_all(self._config.session.plugin.enabled_plugins)
+        else:
+            from spoof.env import enabled_plugins as _env_plugins
+            _ep = _env_plugins()
+            if _ep:
+                self._plugin_manager.load_all(_ep)
 
     def _setup_firewall(self) -> None:
         if not self._config.session.auto_firewall:

@@ -7,6 +7,8 @@ from typing import Optional
 import httpx
 from loguru import logger
 
+from spoof.env import webhook_url as _env_webhook_url
+
 
 class CallbackManager:
 
@@ -18,7 +20,7 @@ class CallbackManager:
     ):
         self._dns_cmd = on_dns_hit_cmd
         self._arp_cmd = on_arp_spoof_cmd
-        self._webhook_url = webhook_url
+        self._webhook_url = webhook_url or _env_webhook_url()
 
     def on_dns_hit(self, domain: str, client_ip: str, spoof_ip: Optional[str], action: str) -> None:
         payload = {
