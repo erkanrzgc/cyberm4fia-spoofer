@@ -86,6 +86,116 @@ class PacketInjector:
             logger.error(f"send_dns_nxdomain failed: {e}")
             return False
 
+    def send_dns_cname_response(
+        self, *, src_ip: str, dst_ip: str, src_port: int, dst_port: int,
+        query_id: int, query_domain: str, cname_target: str, ttl: int = 300,
+    ) -> bool:
+        try:
+            dns_response = (
+                scapy.IP(src=src_ip, dst=dst_ip)
+                / scapy.UDP(sport=src_port, dport=dst_port)
+                / scapy.DNS(
+                    id=query_id, qr=1, aa=1, rd=1, ra=1,
+                    qd=scapy.DNSQR(qname=query_domain, qtype="A"),
+                    an=scapy.DNSRR(rrname=query_domain, rdata=cname_target, ttl=ttl, type="CNAME"),
+                )
+            )
+            scapy.sendp(scapy.Ether() / dns_response, iface=self._interface, verbose=False)
+            return True
+        except Exception as e:
+            logger.error(f"send_dns_cname_response failed: {e}")
+            return False
+
+    def send_dns_mx_response(
+        self, *, src_ip: str, dst_ip: str, src_port: int, dst_port: int,
+        query_id: int, query_domain: str, mx_server: str, preference: int = 10, ttl: int = 300,
+    ) -> bool:
+        try:
+            rdata = f"{preference} {mx_server}"
+            dns_response = (
+                scapy.IP(src=src_ip, dst=dst_ip)
+                / scapy.UDP(sport=src_port, dport=dst_port)
+                / scapy.DNS(
+                    id=query_id, qr=1, aa=1, rd=1, ra=1,
+                    qd=scapy.DNSQR(qname=query_domain, qtype="MX"),
+                    an=scapy.DNSRR(rrname=query_domain, rdata=rdata, ttl=ttl, type="MX"),
+                )
+            )
+            scapy.sendp(scapy.Ether() / dns_response, iface=self._interface, verbose=False)
+            return True
+        except Exception as e:
+            logger.error(f"send_dns_mx_response failed: {e}")
+            return False
+
+    def send_dns_ns_response(
+        self, *, src_ip: str, dst_ip: str, src_port: int, dst_port: int,
+        query_id: int, query_domain: str, ns_server: str, ttl: int = 300,
+    ) -> bool:
+        try:
+            dns_response = (
+                scapy.IP(src=src_ip, dst=dst_ip)
+                / scapy.UDP(sport=src_port, dport=dst_port)
+                / scapy.DNS(
+                    id=query_id, qr=1, aa=1, rd=1, ra=1,
+                    qd=scapy.DNSQR(qname=query_domain, qtype="NS"),
+                    an=scapy.DNSRR(rrname=query_domain, rdata=ns_server, ttl=ttl, type="NS"),
+                )
+            )
+            scapy.sendp(scapy.Ether() / dns_response, iface=self._interface, verbose=False)
+            return True
+        except Exception as e:
+            logger.error(f"send_dns_ns_response failed: {e}")
+            return False
+
+    def send_dns_aaaa_response(
+        self, *, src_ip: str, dst_ip: str, src_port: int, dst_port: int,
+        query_id: int, query_domain: str, answer_ipv6: str, ttl: int = 300,
+    ) -> bool:
+        try:
+            dns_response = (
+                scapy.IP(src=src_ip, dst=dst_ip)
+                / scapy.UDP(sport=src_port, dport=dst_port)
+                / scapy.DNS(
+                    id=query_id, qr=1, aa=1, rd=1, ra=1,
+                    qd=scapy.DNSQR(qname=query_domain, qtype="AAAA"),
+                    an=scapy.DNSRR(rrname=query_domain, rdata=answer_ipv6, ttl=ttl, type="AAAA"),
+                )
+            )
+            scapy.sendp(scapy.Ether() / dns_response, iface=self._interface, verbose=False)
+            return True
+        except Exception as e:
+            logger.error(f"send_dns_aaaa_response failed: {e}")
+            return False
+
+    def send_dns_multi_record_response(
+        self, *, src_ip: str, dst_ip: str, src_port: int, dst_port: int,
+        query_id: int, query_domain: str, records: list[tuple], ttl: int = 300,
+    ) -> bool:
+        try:
+            dns_layer = scapy.DNS(
+                id=query_id, qr=1, aa=1, rd=1, ra=1,
+                qd=scapy.DNSQR(qname=query_domain, qtype="A"),
+            )
+            dns_layer.ancount = len(records)
+            dns_answers = []
+            for rec_type, rec_value in records:
+                dns_answers.append(
+                    scapy.DNSRR(rrname=query_domain, rdata=rec_value, ttl=ttl, type=rec_type)
+                )
+            if dns_answers:
+                dns_layer.an = dns_answers[0] if len(dns_answers) == 1 else dns_answers
+
+            dns_response = (
+                scapy.IP(src=src_ip, dst=dst_ip)
+                / scapy.UDP(sport=src_port, dport=dst_port)
+                / dns_layer
+            )
+            scapy.sendp(scapy.Ether() / dns_response, iface=self._interface, verbose=False)
+            return True
+        except Exception as e:
+            logger.error(f"send_dns_multi_record_response failed: {e}")
+            return False
+
     def send_arp_reply(
         self,
         *,

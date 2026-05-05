@@ -27,6 +27,8 @@ from spoof.core.arp_spoofer import ARPSpoofer
 from spoof.callback import CallbackManager
 from spoof.plugin_manager import PluginManager
 from spoof.banner import render_banner
+from spoof.capture import HTTPCapture
+from spoof.dashboard_web import DashboardServer
 
 
 class SpoofSession:
@@ -34,6 +36,10 @@ class SpoofSession:
         self,
         config: SpoofConfig,
         config_path: Optional[Path] = None,
+        *,
+        http_capture: Optional[HTTPCapture] = None,
+        ssl_interceptor = None,
+        web_dashboard: Optional[DashboardServer] = None,
     ):
         self._config = config
         self._config_path = config_path
@@ -43,6 +49,9 @@ class SpoofSession:
         self._arp_spoofer: Optional[ARPSpoofer] = None
         self._callback: Optional[CallbackManager] = None
         self._plugin_manager = PluginManager(config.session.plugin.plugin_dir)
+        self._http_capture = http_capture
+        self._ssl_interceptor = ssl_interceptor
+        self._web_dashboard = web_dashboard
         self._running = False
         self._console = Console()
 
@@ -158,6 +167,18 @@ class SpoofSession:
         self._start_dns()
         self._start_arp()
 
+        if self._http_capture:
+            self._http_capture.start()
+            self._logger.info("http capture started")
+
+        if self._ssl_interceptor:
+            self._ssl_interceptor.start()
+            self._logger.info("ssl interceptor started")
+
+        if self._web_dashboard:
+            self._web_dashboard.start()
+            self._logger.info("web dashboard started")
+
         self._console.print()
         render_banner(self._console)
         self._console.print(Panel(
@@ -203,6 +224,12 @@ class SpoofSession:
                 self._logger.info("firewall rules cleaned up")
             except PermissionError:
                 pass
+
+        if self._http_capture:
+            self._http_capture.stop()
+
+        if self._ssl_interceptor:
+            self._ssl_interceptor.stop()
 
         self._plugin_manager.trigger_session_stop()
         self._display_final_stats()

