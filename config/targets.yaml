@@ -1,0 +1,73 @@
+session:
+  interface: null
+  log:
+    level: INFO
+    file: logs/spoof.log
+    format: "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {module}:{function}:{line} | {message}"
+    rotation: "10 MB"
+    retention: "7 days"
+    stats_enabled: true
+  plugin:
+    enabled_plugins: []
+    plugin_dir: plugins
+  firewall:
+    auto_setup: true
+    auto_cleanup: true
+  callback:
+    on_dns_hit: null
+    on_arp_spoof: null
+    webhook:
+      url: null
+      events:
+        - on_dns_hit
+        - on_arp_spoof
+        - on_error
+  auto_firewall: true
+  restore_on_exit: true
+  daemon: false
+  save_stats: true
+
+dns:
+  enabled: true
+  mode: race
+  interface: null
+  targets:
+    - pattern: "*.vulnweb.com"
+      match_type: wildcard
+      action: redirect
+      redirect_ip: "192.168.1.100"
+      record_type: A
+      records: []
+      enabled: true
+
+    - pattern: "blocked.org"
+      match_type: exact
+      action: block
+      redirect_ip: null
+      record_type: A
+      records: []
+      enabled: true
+
+    - pattern: "redirect-me.com"
+      match_type: exact
+      action: redirect
+      redirect_ip: "10.0.0.5"
+      record_type: A
+      records: []
+      enabled: false
+
+  ttl: 300
+
+arp:
+  enabled: true
+  interface: null
+  interval: 2.0
+  targets:
+    - gateway: "192.168.1.1"
+      gateway_mac: null
+      victims:
+        - ip: "192.168.1.105"
+          mac: null
+      enabled: true
+
+  restore_on_exit: true

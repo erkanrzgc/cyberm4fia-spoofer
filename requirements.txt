@@ -1,0 +1,10 @@
+scapy>=2.5.0
+pydantic>=2.0
+typer>=0.9
+textual>=0.50
+rich>=13.0
+loguru>=0.7
+httpx>=0.25
+psutil>=5.9
+pyyaml>=6.0
+send2trash>=1.8
